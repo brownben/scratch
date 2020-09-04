@@ -17,25 +17,26 @@ export const parser = (input: string): Tag[] => {
       isHorizontalRule,
       isOrderedListItem,
       isUnorderedListItem,
+      isCodeBlock,
       flushPrevious,
     } = checkLine(line)
 
-    console.log(isOrderedListItem, line)
-
     if (
-      (currentWrapper && !isOrderedListItem && currentWrapper.tag !== 'ol') ||
-      (currentWrapper && !isUnorderedListItem && currentWrapper.tag !== 'ul')
+      (currentWrapper && !isOrderedListItem && currentWrapper.tag === 'ol') ||
+      (currentWrapper && !isUnorderedListItem && currentWrapper.tag === 'ul')
     ) {
       tags.push(currentWrapper)
       currentWrapper = null
     }
 
-    if (flushPrevious && remainingBody) {
+    if (flushPrevious && remainingBody && currentWrapper?.tag !== 'pre') {
       tags.push({ tag: 'p', body: remainingBody })
       remainingBody = ''
     }
 
-    if (isHeading)
+    if (currentWrapper?.tag === 'pre' && !isCodeBlock)
+      remainingBody += line + '\n'
+    else if (isHeading)
       tags.push({ tag: `h${isHeading[1].length}`, body: isHeading[2] })
     else if (isBlockquote)
       tags.push({ tag: `blockquote`, body: isBlockquote[1] })
@@ -68,10 +69,29 @@ export const parser = (input: string): Tag[] => {
         tag: 'ol',
         body: [{ tag: 'li', body: isOrderedListItem[1] }],
       }
+    else if (
+      currentWrapper &&
+      isCodeBlock &&
+      currentWrapper?.tag === 'pre' &&
+      Array.isArray(currentWrapper.body)
+    ) {
+      currentWrapper.body.push({ tag: 'code', body: remainingBody.trim() })
+      remainingBody = ''
+      tags.push(currentWrapper)
+      currentWrapper = null
+    } else if (isCodeBlock)
+      currentWrapper = {
+        tag: 'pre',
+        body: [],
+      }
     else remainingBody += line
   }
 
-  if (currentWrapper) tags.push(currentWrapper)
+  if (currentWrapper?.tag === 'pre' && Array.isArray(currentWrapper.body)) {
+    currentWrapper.body.push({ tag: 'code', body: remainingBody.trim() })
+    remainingBody = ''
+    tags.push(currentWrapper)
+  } else if (currentWrapper) tags.push(currentWrapper)
   if (remainingBody) tags.push({ tag: 'p', body: remainingBody })
 
   return tags
@@ -82,6 +102,7 @@ const matchesBlockquote = (line: string) => line.match(/^>\s+(.*)$/)
 const matchesHorizontalRule = (line: string) => line.match(/^---$/)
 const matchesOrderedListItem = (line: string) => line.match(/^[0-9]+\.\s+(.*)$/)
 const matchesUnorderedListItem = (line: string) => line.match(/^-\s+(.*)$/)
+const matchesCodeBlock = (line: string) => line.match(/^```(.*)\s*$/)
 const matchesBlank = (line: string) => line.match(/^\s*$/)
 
 interface LineSummary {
@@ -90,6 +111,7 @@ interface LineSummary {
   isHorizontalRule: RegExpMatchArray | null
   isOrderedListItem: RegExpMatchArray | null
   isUnorderedListItem: RegExpMatchArray | null
+  isCodeBlock: RegExpMatchArray | null
   isBlank: RegExpMatchArray | null
   flushPrevious?: RegExpMatchArray | null
 }
@@ -100,6 +122,7 @@ const checkLine = (line: string) => {
     isHorizontalRule: matchesHorizontalRule(line),
     isOrderedListItem: matchesOrderedListItem(line),
     isUnorderedListItem: matchesUnorderedListItem(line),
+    isCodeBlock: matchesCodeBlock(line),
     isBlank: matchesBlank(line),
   } as LineSummary
 
