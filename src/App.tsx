@@ -3,7 +3,6 @@ import React, { useState } from 'react'
 import Header from './components/Header'
 import Editor from './components/Editor'
 import Output from './components/Output'
-import Footer from './components/Footer'
 
 import './tailwind.css'
 
@@ -14,16 +13,15 @@ export default () => {
   return (
     <>
       <Header />
-      <main className="pt-2 min-h-full flex flex-col flex-grow">
-        <div className="max-w-screen-lg w-full flex-grow mx-auto flex flex-col md:flex-row">
+      <main className="flex flex-col flex-grow min-h-full pt-2">
+        <div className="flex flex-col flex-grow w-full max-w-screen-lg mx-auto">
           <Editor
             initialValue={initialValue}
-            onChange={(value) => setInput(value)}
+            onChange={(value: string) => setInput(value)}
           />
           <Output input={input} />
         </div>
       </main>
-      <Footer />
     </>
   )
 }
