@@ -3,107 +3,174 @@ export interface Tag {
   body: string | Tag[]
 }
 
-export const parser = (input: string): Tag[] => {
-  const tags: Tag[] = []
-  const lines: string[] = input.split('\n')
+export class Parser {
+  lines: string[]
+  tags: Tag[] = []
 
-  let remainingBody = ''
-  let currentWrapper: Tag | null = null
+  currentWrapper: Tag | null = null
+  remainingBody: string = ''
 
-  for (const line of lines) {
-    const {
-      isHeading,
-      isBlockquote,
-      isHorizontalRule,
-      isOrderedListItem,
-      isUnorderedListItem,
-      isCodeBlock,
-      flushPrevious,
-    } = checkLine(line)
+  constructor(input: string) {
+    this.lines = input.split('\n')
 
-    if (
-      (currentWrapper && !isOrderedListItem && currentWrapper.tag === 'ol') ||
-      (currentWrapper && !isUnorderedListItem && currentWrapper.tag === 'ul')
-    ) {
-      tags.push(currentWrapper)
-      currentWrapper = null
+    for (const rawLine of this.lines) {
+      const line = new Line(rawLine)
+      const {
+        isHeading,
+        isBlockquote,
+        isHorizontalRule,
+        isUnorderedListItem,
+        isOrderedListItem,
+        isCodeBlock,
+      } = line.getLineSummary()
+
+      if (
+        (!isOrderedListItem && this.inBlock('ol')) ||
+        (!isUnorderedListItem && this.inBlock('ul'))
+      )
+        this.flushCurrentWrapper()
+      else if (line.isNewElement() && !this.inBlock('pre'))
+        this.flushRemainingBody()
+
+      if (this.inBlock('pre')) this.addCodeBlockLine(line)
+      else if (isHeading) this.addHeading(isHeading)
+      else if (isBlockquote) this.addBlockquote(isBlockquote)
+      else if (isHorizontalRule) this.addHorizontalRule()
+      else if (this.inBlock('ol') && isOrderedListItem)
+        this.addListItem(isOrderedListItem[1])
+      else if (this.inBlock('ul') && isUnorderedListItem)
+        this.addList('ul', isUnorderedListItem[1])
+      else if (isOrderedListItem) this.addList('ol', isOrderedListItem[1])
+      else if (isUnorderedListItem) this.addList('ul', isUnorderedListItem[1])
+      else if (isCodeBlock) this.openCodeBlock()
+      else this.remainingBody += line.getRaw()
     }
 
-    if (flushPrevious && remainingBody && currentWrapper?.tag !== 'pre') {
-      tags.push({ tag: 'p', body: remainingBody })
-      remainingBody = ''
-    }
+    if (this.inBlock('pre')) this.closeCodeBlock()
+    else if (this.currentWrapper) this.flushCurrentWrapper()
 
-    if (currentWrapper?.tag === 'pre' && !isCodeBlock)
-      remainingBody += line + '\n'
-    else if (isHeading)
-      tags.push({ tag: `h${isHeading[1].length}`, body: isHeading[2] })
-    else if (isBlockquote)
-      tags.push({ tag: `blockquote`, body: isBlockquote[1] })
-    else if (isHorizontalRule) tags.push({ tag: `hr`, body: '' })
-    else if (
-      isOrderedListItem &&
-      currentWrapper?.tag === 'ol' &&
-      Array.isArray(currentWrapper.body)
-    )
-      currentWrapper.body.push({
-        tag: 'li',
-        body: isOrderedListItem[1],
-      })
-    else if (
-      isUnorderedListItem &&
-      currentWrapper?.tag === 'ul' &&
-      Array.isArray(currentWrapper.body)
-    )
-      currentWrapper.body.push({
-        tag: 'li',
-        body: isUnorderedListItem[1],
-      })
-    else if (isUnorderedListItem)
-      currentWrapper = {
-        tag: 'ul',
-        body: [{ tag: 'li', body: isUnorderedListItem[1] }],
-      }
-    else if (isOrderedListItem)
-      currentWrapper = {
-        tag: 'ol',
-        body: [{ tag: 'li', body: isOrderedListItem[1] }],
-      }
-    else if (
-      currentWrapper &&
-      isCodeBlock &&
-      currentWrapper?.tag === 'pre' &&
-      Array.isArray(currentWrapper.body)
-    ) {
-      currentWrapper.body.push({ tag: 'code', body: remainingBody.trim() })
-      remainingBody = ''
-      tags.push(currentWrapper)
-      currentWrapper = null
-    } else if (isCodeBlock)
-      currentWrapper = {
-        tag: 'pre',
-        body: [],
-      }
-    else remainingBody += line
+    if (this.remainingBody) this.flushRemainingBody()
   }
 
-  if (currentWrapper?.tag === 'pre' && Array.isArray(currentWrapper.body)) {
-    currentWrapper.body.push({ tag: 'code', body: remainingBody.trim() })
-    remainingBody = ''
-    tags.push(currentWrapper)
-  } else if (currentWrapper) tags.push(currentWrapper)
-  if (remainingBody) tags.push({ tag: 'p', body: remainingBody })
+  addHeading(isHeading: RegExpMatchArray) {
+    const level = isHeading[1].length
+    if (level <= 6) this.tags.push({ tag: `h${level}`, body: isHeading[2] })
+    else this.tags.push({ tag: 'p', body: isHeading[2] })
+  }
+  addBlockquote(isBlockquote: RegExpMatchArray) {
+    this.tags.push({ tag: `blockquote`, body: isBlockquote[1] })
+  }
+  addHorizontalRule() {
+    this.tags.push({ tag: `hr`, body: '' })
+  }
+  addList(type: string, firstItem: string) {
+    this.currentWrapper = {
+      tag: type,
+      body: [{ tag: 'li', body: firstItem }],
+    }
+  }
+  addListItem(item: string) {
+    if (this.currentWrapper && Array.isArray(this.currentWrapper?.body))
+      this.currentWrapper.body.push({ tag: 'li', body: item })
+    else if (this.currentWrapper)
+      this.currentWrapper.body = [{ tag: 'li', body: item }]
+  }
+  openCodeBlock() {
+    this.currentWrapper = { tag: 'pre', body: [] }
+  }
+  addCodeBlockLine(line: Line) {
+    if (line.isCodeBlock()) this.closeCodeBlock()
+    else this.remainingBody += `${line}\n`
+  }
+  closeCodeBlock() {
+    if (this.currentWrapper) {
+      this.currentWrapper.body = [
+        {
+          tag: 'code',
+          body: this.remainingBody.trim(),
+        },
+      ]
+      this.remainingBody = ''
+      this.flushCurrentWrapper()
+    }
+  }
 
-  return tags
+  flushCurrentWrapper() {
+    if (this.currentWrapper) this.tags.push(this.currentWrapper)
+    this.currentWrapper = null
+  }
+  flushRemainingBody() {
+    if (this.remainingBody)
+      this.tags.push({ tag: 'p', body: this.remainingBody })
+    this.remainingBody = ''
+  }
+
+  inBlock(tag: string) {
+    return this.currentWrapper?.tag === tag
+  }
+
+  getTags() {
+    return this.tags
+  }
 }
 
-const matchesHeading = (line: string) => line.match(/^(#+)\s+(.*)$/)
-const matchesBlockquote = (line: string) => line.match(/^>\s+(.*)$/)
-const matchesHorizontalRule = (line: string) => line.match(/^---$/)
-const matchesOrderedListItem = (line: string) => line.match(/^[0-9]+\.\s+(.*)$/)
-const matchesUnorderedListItem = (line: string) => line.match(/^-\s+(.*)$/)
-const matchesCodeBlock = (line: string) => line.match(/^```(.*)\s*$/)
-const matchesBlank = (line: string) => line.match(/^\s*$/)
+class Line {
+  line: string
+
+  constructor(line: string) {
+    this.line = line
+  }
+
+  isHeading() {
+    return this.line.match(/^(#+)\s+(.*)$/)
+  }
+  isBlockquote() {
+    return this.line.match(/^>\s+(.*)$/)
+  }
+  isHorizontalRule() {
+    return this.line.match(/^---$/)
+  }
+  isOrderedListItem() {
+    return this.line.match(/^[0-9]+\.\s+(.*)$/)
+  }
+  isUnorderedListItem() {
+    return this.line.match(/^-\s+(.*)$/)
+  }
+  isCodeBlock() {
+    return this.line.match(/^```(.*)\s*$/)
+  }
+  isBlank() {
+    return this.line.match(/^\s*$/)
+  }
+
+  isNewElement() {
+    return (
+      this.isHeading() ||
+      this.isBlockquote() ||
+      this.isHorizontalRule() ||
+      this.isOrderedListItem() ||
+      this.isUnorderedListItem() ||
+      this.isCodeBlock() ||
+      this.isBlank()
+    )
+  }
+
+  getRaw() {
+    return this.line
+  }
+
+  getLineSummary() {
+    return {
+      isHeading: this.isHeading(),
+      isBlockquote: this.isBlockquote(),
+      isHorizontalRule: this.isHorizontalRule(),
+      isOrderedListItem: this.isOrderedListItem(),
+      isUnorderedListItem: this.isUnorderedListItem(),
+      isCodeBlock: this.isCodeBlock(),
+      isBlank: this.isBlank(),
+    } as LineSummary
+  }
+}
 
 interface LineSummary {
   isHeading: RegExpMatchArray | null
@@ -114,25 +181,4 @@ interface LineSummary {
   isCodeBlock: RegExpMatchArray | null
   isBlank: RegExpMatchArray | null
   flushPrevious?: RegExpMatchArray | null
-}
-const checkLine = (line: string) => {
-  const data = {
-    isHeading: matchesHeading(line),
-    isBlockquote: matchesBlockquote(line),
-    isHorizontalRule: matchesHorizontalRule(line),
-    isOrderedListItem: matchesOrderedListItem(line),
-    isUnorderedListItem: matchesUnorderedListItem(line),
-    isCodeBlock: matchesCodeBlock(line),
-    isBlank: matchesBlank(line),
-  } as LineSummary
-
-  data.flushPrevious =
-    data.isHeading ||
-    data.isBlockquote ||
-    data.isHorizontalRule ||
-    data.isOrderedListItem ||
-    data.isUnorderedListItem ||
-    data.isBlank
-
-  return data
 }

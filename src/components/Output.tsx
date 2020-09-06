@@ -1,5 +1,5 @@
 import React from 'react'
-import { parser, Tag } from '../parser'
+import { Parser, Tag } from '../parser'
 
 interface props {
   input: string
@@ -23,10 +23,11 @@ const outputTag = (tag: Tag, index: number, level: string) => {
 }
 
 export default ({ input }: props) => {
-  const abstractSyntaxTree = parser(input)
+  const parser = new Parser(input)
+  const abstractSyntaxTree = parser.getTags()
 
   return (
-    <article className="flex-grow w-full h-full md:mt-6">
+    <article className="flex-grow w-full h-full pb-8 md:mt-6">
       <h2 className="my-4 font-sans text-2xl font-bold">Output:</h2>
       <hr className="mb-4" />
       <div className="mx-auto prose max-w-none md:prose-lg">
