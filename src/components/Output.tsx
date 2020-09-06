@@ -11,15 +11,17 @@ const processTags = (tags: Tag[], level: string) =>
 const outputTag = (tag: Tag, index: number, level: string) => {
   const TagName = tag.tag as keyof JSX.IntrinsicElements
   const key = `${level}-${index}`
+
+  if (!tag.tag && typeof tag.body === 'string')
+    return <React.Fragment key={key}>{tag.body}</React.Fragment>
+  else if (!tag.tag)
+    return (
+      <React.Fragment key={key}>{processTags(tag.body, level)}</React.Fragment>
+    )
   if (!tag.body) return <TagName key={key} />
   else if (typeof tag.body === 'string')
     return <TagName key={key}>{tag.body}</TagName>
-  else
-    return (
-      <TagName key={key}>
-        {processTags(tag.body, `${level}-${index}-${tag.tag}`)}
-      </TagName>
-    )
+  else return <TagName key={key}>{processTags(tag.body, level)}</TagName>
 }
 
 export default ({ input }: props) => {

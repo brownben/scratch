@@ -1,3 +1,5 @@
+import { inlineParser } from './inlineParser'
+
 export interface Tag {
   tag: string
   body: string | Tag[]
@@ -12,7 +14,72 @@ export class Parser {
 
   constructor(input: string) {
     this.lines = input.split('\n')
+  }
 
+  addTag(tagName: string, body: string): Tag {
+    this.tags.push({
+      tag: tagName,
+      body: inlineParser(body),
+    })
+  }
+
+  addHeading(isHeading: RegExpMatchArray) {
+    const level = isHeading[1].length
+    if (level <= 6) this.addTag(`h${level}`, isHeading[2])
+    else this.addTag('p', isHeading[2])
+  }
+  addBlockquote(isBlockquote: RegExpMatchArray) {
+    this.addTag('blockquote', isBlockquote[1])
+  }
+  addHorizontalRule() {
+    this.addTag('hr', '')
+  }
+  addList(type: string, firstItem: string) {
+    this.currentWrapper = {
+      tag: type,
+      body: [{ tag: 'li', body: firstItem }],
+    }
+  }
+  addListItem(item: string) {
+    if (this.currentWrapper && Array.isArray(this.currentWrapper?.body))
+      this.currentWrapper.body.push({ tag: 'li', body: inlineParser(item) })
+    else if (this.currentWrapper)
+      this.currentWrapper.body = [{ tag: 'li', body: inlineParser(item) }]
+  }
+  openCodeBlock() {
+    this.currentWrapper = { tag: 'pre', body: [] }
+  }
+  addCodeBlockLine(line: Line) {
+    if (line.isCodeBlock()) this.closeCodeBlock()
+    else this.remainingBody += `${line}\n`
+  }
+  closeCodeBlock() {
+    if (this.currentWrapper) {
+      this.currentWrapper.body = [
+        {
+          tag: 'code',
+          body: this.remainingBody.trim(),
+        },
+      ]
+      this.remainingBody = ''
+      this.flushCurrentWrapper()
+    }
+  }
+
+  flushCurrentWrapper() {
+    if (this.currentWrapper) this.tags.push(this.currentWrapper)
+    this.currentWrapper = null
+  }
+  flushRemainingBody() {
+    if (this.remainingBody) this.addTag('p', this.remainingBody)
+    this.remainingBody = ''
+  }
+
+  inBlock(tag: string) {
+    return this.currentWrapper?.tag === tag
+  }
+
+  getTags() {
     for (const rawLine of this.lines) {
       const line = new Line(rawLine)
       const {
@@ -50,66 +117,7 @@ export class Parser {
     else if (this.currentWrapper) this.flushCurrentWrapper()
 
     if (this.remainingBody) this.flushRemainingBody()
-  }
 
-  addHeading(isHeading: RegExpMatchArray) {
-    const level = isHeading[1].length
-    if (level <= 6) this.tags.push({ tag: `h${level}`, body: isHeading[2] })
-    else this.tags.push({ tag: 'p', body: isHeading[2] })
-  }
-  addBlockquote(isBlockquote: RegExpMatchArray) {
-    this.tags.push({ tag: `blockquote`, body: isBlockquote[1] })
-  }
-  addHorizontalRule() {
-    this.tags.push({ tag: `hr`, body: '' })
-  }
-  addList(type: string, firstItem: string) {
-    this.currentWrapper = {
-      tag: type,
-      body: [{ tag: 'li', body: firstItem }],
-    }
-  }
-  addListItem(item: string) {
-    if (this.currentWrapper && Array.isArray(this.currentWrapper?.body))
-      this.currentWrapper.body.push({ tag: 'li', body: item })
-    else if (this.currentWrapper)
-      this.currentWrapper.body = [{ tag: 'li', body: item }]
-  }
-  openCodeBlock() {
-    this.currentWrapper = { tag: 'pre', body: [] }
-  }
-  addCodeBlockLine(line: Line) {
-    if (line.isCodeBlock()) this.closeCodeBlock()
-    else this.remainingBody += `${line}\n`
-  }
-  closeCodeBlock() {
-    if (this.currentWrapper) {
-      this.currentWrapper.body = [
-        {
-          tag: 'code',
-          body: this.remainingBody.trim(),
-        },
-      ]
-      this.remainingBody = ''
-      this.flushCurrentWrapper()
-    }
-  }
-
-  flushCurrentWrapper() {
-    if (this.currentWrapper) this.tags.push(this.currentWrapper)
-    this.currentWrapper = null
-  }
-  flushRemainingBody() {
-    if (this.remainingBody)
-      this.tags.push({ tag: 'p', body: this.remainingBody })
-    this.remainingBody = ''
-  }
-
-  inBlock(tag: string) {
-    return this.currentWrapper?.tag === tag
-  }
-
-  getTags() {
     return this.tags
   }
 }
